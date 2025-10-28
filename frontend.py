@@ -1,38 +1,56 @@
 import streamlit as st
-from chatbot_with_out_memory import get_chat_response  # Import the backend function
-from langchain_core.messages import HumanMessage
+import requests
+import time
 
-# Streamlit session state setup
+st.header("DexterzSol Technologies Assistant - 🤖")
+
 if 'message_history' not in st.session_state:
     st.session_state['message_history'] = []
 
-# Display chat history (previous conversation)
+# Display chat history
 for message in st.session_state['message_history']:
     with st.chat_message(message['role']):
-        st.text(message['content'])
+        st.markdown(message['content'])
 
-# User input for chat
+# ✅ Stream text in small increments for smoother effect
+def get_chat_response(user_input):
+    try:
+        with requests.post(
+            "http://localhost:8000/query/",
+            data={"question": user_input, "thread_id": "1"},
+            stream=True,
+            timeout=60
+        ) as response:
+            response.raise_for_status()
+            for chunk in response.iter_content(chunk_size=32):
+                if chunk:
+                    text_piece = chunk.decode("utf-8")
+                    yield text_piece  # yield small piece directly
+    except Exception as e:
+        yield f"Error: {e}"
+
 user_input = st.chat_input("Type your message here:")
 
-# Process the user's message if provided
 if user_input:
-    # Append the user's message to session state
     st.session_state['message_history'].append({'role': 'user', 'content': user_input})
-    
-    # Display the user's message
+
     with st.chat_message('user'):
-        st.text(user_input)
+        st.markdown(user_input)
 
-    # Get the chatbot's response from the backend
-    try:
-        ai_message = get_chat_response(user_input)  # Call the backend function to get response
-        
-        # Append the assistant's response to session state
-        st.session_state['message_history'].append({'role': 'assistant', 'content': ai_message})
-        
-        # Display the assistant's response
-        with st.chat_message('assistant'):
-            st.text(ai_message)
+    with st.chat_message('assistant'):
+        message_placeholder = st.empty()
+        displayed_text = ""
+        first_chunk = True
 
-    except Exception as e:
-        st.error(f"Error: {e}")
+        for text_piece in get_chat_response(user_input):
+            if first_chunk:
+                displayed_text = ""
+                first_chunk = False
+
+            displayed_text += text_piece
+            message_placeholder.markdown(displayed_text + "▌")  # typing cursor
+            time.sleep(0.03)  # simulate live typing speed
+
+        # remove cursor at end
+        message_placeholder.markdown(displayed_text)
+        st.session_state['message_history'].append({'role': 'assistant', 'content': displayed_text})
